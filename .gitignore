@@ -48,6 +48,10 @@ logs/
 htmlcov/
 
 # Selenium
+null
+NUL
+.wdm/
+selenium_cache/
 geckodriver.log
 chromedriver.exe
 *.crx

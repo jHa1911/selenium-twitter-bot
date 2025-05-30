@@ -6,6 +6,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
+import os
+import tempfile
 import time
 import random
 from loguru import logger
@@ -17,6 +19,18 @@ class SeleniumManager:
         self.settings = settings
         self.driver: Optional[webdriver.Chrome] = None
         self.wait: Optional[WebDriverWait] = None
+        self._setup_webdriver_env()
+
+    def _setup_webdriver_env(self):
+        """Setup environment variables to prevent WebDriver cleanup issues"""
+        # Disable WebDriverManager logging to prevent nul file creation
+        os.environ['WDM_LOG_LEVEL'] = '0'
+        os.environ['WDM_PRINT_FIRST_LINE'] = 'False'
+
+        # Set proper cache directory
+        cache_dir = os.path.join(tempfile.gettempdir(), 'selenium_cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        os.environ['WDM_CACHE_DIR'] = cache_dir
 
     def _ensure_initialized(self) -> None:
         """Ensure driver and wait are initialized, raise error if not"""
@@ -41,19 +55,37 @@ class SeleniumManager:
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-notifications")
             chrome_options.add_argument("--disable-popup-blocking")
+            chrome_options.add_argument("--disable-logging")
+            chrome_options.add_argument("--log-level=3")
+            chrome_options.add_argument("--silent")
+
+            # Prevent cleanup issues
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
 
             # User agent to avoid detection
             chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
             # Headless mode if configured
             if self.settings.headless_mode:
-                chrome_options.add_argument("--headless")
+                chrome_options.add_argument("--headless=new")  # Use new headless mode
                 chrome_options.add_argument("--window-size=1920,1080")
 
-            # Setup service
-            service = Service(ChromeDriverManager().install())
+            # Setup service with proper logging
+            try:
+                # Use ChromeDriverManager with proper configuration
+                driver_path = ChromeDriverManager().install()
 
-            # Create driver
+                service = Service(
+                    driver_path,
+                    log_path=os.devnull if os.name != 'nt' else 'NUL'
+                )
+            except Exception as e:
+                logger.warning(f"ChromeDriverManager failed, trying system Chrome: {e}")
+                service = Service()
+
+            # Create driver with error handling
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
             self.driver.set_page_load_timeout(self.settings.page_load_timeout)
             self.driver.implicitly_wait(10)
@@ -66,9 +98,19 @@ class SeleniumManager:
 
         except Exception as e:
             logger.error(f"Failed to setup WebDriver: {e}")
-            self.driver = None
-            self.wait = None  # Also reset wait on failure
+            self._cleanup_driver()
             return False
+
+    def _cleanup_driver(self):
+        """Safely cleanup driver resources"""
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception as e:
+                logger.warning(f"Error during driver cleanup: {e}")
+            finally:
+                self.driver = None
+                self.wait = None
 
     def navigate_to_twitter(self):
         """Navigate to Twitter login page
@@ -292,7 +334,14 @@ class SeleniumManager:
             return False
 
     def close(self):
-        """Close the WebDriver"""
-        if self.driver:
-            self.driver.quit()
-            logger.info("WebDriver closed")
+        """Close the WebDriver safely"""
+        logger.info("Closing WebDriver...")
+        self._cleanup_driver()
+
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with cleanup"""
+        self.close()
