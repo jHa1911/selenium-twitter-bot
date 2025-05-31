@@ -112,28 +112,65 @@ class SeleniumManager:
                 self.driver = None
                 self.wait = None
 
-    def navigate_to_twitter(self):
-        """Navigate to Twitter login page
-
-        Returns:
-            bool: True if navigation successful, False otherwise
-
-        Raises:
-            RuntimeError: If WebDriver setup fails
-        """
-        self._ensure_initialized()
-
-        # Local reference for type safety
-        driver = self.driver
-        assert driver is not None
+    def _safe_click(self, element):
+        """Safely click element using JavaScript if regular click fails"""
+        if not self.driver:
+            raise RuntimeError("WebDriver not initialized")
 
         try:
-            driver.get("https://x.com/login")
-            logger.info("Navigated to Twitter login page")
-            return True
+            element.click()
+        except WebDriverException as e:
+            logger.warning(f"Regular click failed, trying JavaScript click: {e}")
+            self.driver.execute_script("arguments[0].click();", element)
+
+    def _dismiss_overlays(self):
+        """Dismiss any potential overlays or modals that might block clicks"""
+        if not self.driver:
+            return
+
+        try:
+            # Common overlay close selectors
+            overlay_selectors = [
+                '[data-testid="app-bar-close"]',
+                '[aria-label="Close"]',
+                '[data-testid="mask"]',
+                '.r-1p0dtai',  # Common Twitter overlay class
+                '[role="button"][aria-label*="Close"]'
+            ]
+
+            for selector in overlay_selectors:
+                overlays = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                for overlay in overlays:
+                    if overlay.is_displayed() and overlay.is_enabled():
+                        logger.info("Dismissing overlay")
+                        self._safe_click(overlay)
+                        time.sleep(random.uniform(0.5, 1))
+                        break
         except Exception as e:
-            logger.error(f"Failed to navigate to Twitter: {e}")
-            return False
+            logger.debug(f"No overlays to dismiss: {e}")
+
+    def navigate_to_twitter(self):
+            """Navigate to Twitter login page
+
+            Returns:
+                bool: True if navigation successful, False otherwise
+
+            Raises:
+                RuntimeError: If WebDriver setup fails
+            """
+            self._ensure_initialized()
+
+            # Local reference for type safety
+            driver = self.driver
+            assert driver is not None
+
+            try:
+                driver.get("https://x.com/login")
+                logger.info("Navigated to Twitter login page")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to navigate to Twitter: {e}")
+                return False
 
     def login(self, username: str, password: str, email: Optional[str] = None):
         """Login to Twitter"""
@@ -285,7 +322,7 @@ class SeleniumManager:
             return None
 
     def reply_to_tweet(self, tweet_data: dict, reply_text: str):
-        """Reply to a specific tweet"""
+        """Reply to a specific tweet with enhanced error handling"""
         self._ensure_initialized()
 
         # Local references for type safety
@@ -295,40 +332,154 @@ class SeleniumManager:
         assert wait is not None
 
         try:
-            # Click reply button
+            # Dismiss any potential overlays first
+            self._dismiss_overlays()
+
+            # Get reply button
             reply_button = tweet_data['reply_button']
-            driver.execute_script("arguments[0].scrollIntoView(true);", reply_button)
-            time.sleep(random.uniform(1, 2))
-            reply_button.click()
 
-            # Wait for reply dialog
-            reply_textarea = wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="tweetTextarea_0"]'))
-            )
+            # Enhanced scrolling - scroll to center of viewport
+            driver.execute_script("""
+                arguments[0].scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                    inline: 'center'
+                });
+            """, reply_button)
 
-            # Type reply
-            reply_textarea.click()
+            # Wait longer for any animations to complete
+            time.sleep(random.uniform(2, 4))
+
+            # Wait specifically for this reply button to be clickable
+            try:
+                # Wait for the specific reply button to be clickable
+                wait.until(lambda d: reply_button.is_displayed() and reply_button.is_enabled())
+
+                # Additional check - wait for element to be clickable using EC
+                clickable_reply = wait.until(
+                    EC.element_to_be_clickable(reply_button)
+                )
+
+            except TimeoutException:
+                logger.warning("Reply button not immediately clickable, trying alternative approach")
+                # Try finding reply button again by tweet element
+                try:
+                    tweet_element = tweet_data['element']
+                    clickable_reply = tweet_element.find_element(By.CSS_SELECTOR, '[data-testid="reply"]')
+                except:
+                    raise Exception("Could not locate clickable reply button")
+
+            # Dismiss overlays again in case any appeared during scroll
+            self._dismiss_overlays()
+
+            # Try safe click
+            logger.info(f"Attempting to click reply button for @{tweet_data['username']}")
+            self._safe_click(clickable_reply)
+
+            # Wait for reply dialog with multiple possible selectors
+            reply_textarea = None
+            textarea_selectors = [
+                '[data-testid="tweetTextarea_0"]',
+                '[data-testid="tweetTextarea_1"]',
+                'div[role="textbox"][data-testid*="tweetTextarea"]',
+                'div[contenteditable="true"][role="textbox"]'
+            ]
+
+            for selector in textarea_selectors:
+                try:
+                    reply_textarea = wait.until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                    )
+                    logger.info(f"Found reply textarea with selector: {selector}")
+                    break
+                except TimeoutException:
+                    continue
+
+            if not reply_textarea:
+                raise Exception("Could not find reply textarea")
+
+            # Wait for textarea to be interactive
+            wait.until(EC.element_to_be_clickable(reply_textarea))
+
+            # Click textarea to focus
+            self._safe_click(reply_textarea)
             time.sleep(random.uniform(0.5, 1))
 
-            # Type with human-like delays
-            for char in reply_text:
-                reply_textarea.send_keys(char)
-                time.sleep(random.uniform(0.05, 0.15))
+            # Clear any existing text
+            reply_textarea.clear()
+            time.sleep(random.uniform(0.3, 0.7))
 
+            # Type reply with human-like delays
+            logger.info("Typing reply text...")
+            for i, char in enumerate(reply_text):
+                reply_textarea.send_keys(char)
+
+                # Variable delays - faster for common letters, slower for punctuation
+                if char in ' .,!?':
+                    delay = random.uniform(0.1, 0.3)
+                else:
+                    delay = random.uniform(0.05, 0.15)
+
+                time.sleep(delay)
+
+                # Occasional longer pauses to simulate thinking
+                if i > 0 and i % random.randint(15, 25) == 0:
+                    time.sleep(random.uniform(0.5, 1.2))
+
+            # Wait before submitting
             time.sleep(random.uniform(1, 2))
 
-            # Click reply button
-            reply_submit = wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-testid="tweetButtonInline"]'))
-            )
-            reply_submit.click()
+            # Find and click reply submit button
+            submit_selectors = [
+                '[data-testid="tweetButtonInline"]',
+                '[data-testid="tweetButton"]',
+                'div[role="button"][data-testid*="tweet"]'
+            ]
 
-            # Wait for reply to be posted
+            reply_submit = None
+            for selector in submit_selectors:
+                try:
+                    reply_submit = wait.until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                    )
+                    break
+                except TimeoutException:
+                    continue
+
+            if not reply_submit:
+                raise Exception("Could not find reply submit button")
+
+            # Submit the reply
+            self._safe_click(reply_submit)
+
+            # Wait for reply to be posted - look for success indicators
             time.sleep(random.uniform(2, 4))
+
+            # Try to detect successful posting
+            try:
+                # Look for success indicators
+                success_indicators = [
+                    '[data-testid="toast"]',  # Success toast
+                    '[role="alert"]',         # Success alert
+                ]
+
+                for indicator in success_indicators:
+                    elements = driver.find_elements(By.CSS_SELECTOR, indicator)
+                    if elements:
+                        logger.info("Reply posting success indicator found")
+                        break
+            except:
+                pass  # Success detection is optional
 
             logger.info(f"Successfully replied to @{tweet_data['username']}")
             return True
 
+        except TimeoutException as e:
+            logger.error(f"Reply timeout - element not found/clickable: {e}")
+            return False
+        except WebDriverException as e:
+            logger.error(f"WebDriver error during reply: {e}")
+            return False
         except Exception as e:
             logger.error(f"Failed to reply to tweet: {e}")
             return False
