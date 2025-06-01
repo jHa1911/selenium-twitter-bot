@@ -314,6 +314,212 @@ class SeleniumManager:
             logger.error(f"Login failed: {e}")
             return False
 
+    def get_followers(self, limit: int = 50):
+        """Get list of followers who are not being followed back"""
+        self._ensure_initialized()
+
+        driver = self.driver
+        assert driver is not None
+
+        try:
+            # Navigate to followers page
+            driver.get("https://x.com/followers")
+            time.sleep(random.uniform(3, 5))
+
+            followers_to_follow = []
+            processed_count = 0
+
+            # Scroll and collect followers
+            last_height = driver.execute_script("return document.body.scrollHeight")
+
+            while processed_count < limit:
+                # Find follower elements
+                follower_elements = driver.find_elements(By.CSS_SELECTOR, '[data-testid="UserCell"]')
+
+                for element in follower_elements[processed_count:]:
+                    try:
+                        # Extract username
+                        username_element = element.find_element(By.CSS_SELECTOR, '[data-testid="User-Name"] a')
+                        href = username_element.get_attribute('href')
+
+                        if not href:
+                            logger.warning("Username element found but href is None, skipping")
+                            continue
+
+                        username = href.split('/')[-1]
+
+                        if not username:
+                            logger.warning("Empty username extracted, skipping")
+                            continue
+
+                        # Check if there's a "Follow" button (meaning we're not following them)
+                        follow_buttons = element.find_elements(By.CSS_SELECTOR, '[data-testid="follow"]')
+                        if follow_buttons and follow_buttons[0].is_displayed():
+                            followers_to_follow.append({
+                                'username': username,
+                                'element': element,
+                                'follow_button': follow_buttons[0]
+                            })
+
+                        processed_count += 1
+                        if processed_count >= limit:
+                            break
+
+                    except Exception as e:
+                        logger.warning(f"Failed to process follower element: {e}")
+                        continue
+
+                # Scroll down
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(random.uniform(2, 4))
+
+                # Check if we've reached the bottom
+                new_height = driver.execute_script("return document.body.scrollHeight")
+                if new_height == last_height:
+                    break
+                last_height = new_height
+
+            logger.info(f"Found {len(followers_to_follow)} followers to follow back")
+            return followers_to_follow
+
+        except Exception as e:
+            logger.error(f"Failed to get followers: {e}")
+            return []
+
+    def follow_user(self, user_data: dict):
+        """Follow a specific user"""
+        self._ensure_initialized()
+
+        driver = self.driver
+        wait = self.wait
+        assert driver is not None
+        assert wait is not None
+
+        try:
+            follow_button = user_data['follow_button']
+
+            # Scroll to button
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", follow_button)
+            time.sleep(random.uniform(1, 2))
+
+            # Click follow button
+            self._safe_click(follow_button)
+
+            # Wait for button to change (confirmation)
+            time.sleep(random.uniform(2, 3))
+
+            logger.info(f"Successfully followed @{user_data['username']}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to follow @{user_data['username']}: {e}")
+            return False
+
+    def get_following_posts(self, limit: int = 20):
+        """Get recent posts from people we're following"""
+        self._ensure_initialized()
+
+        driver = self.driver
+        assert driver is not None
+
+        try:
+            # Navigate to home timeline (following feed)
+            driver.get("https://x.com/home")
+            time.sleep(random.uniform(3, 5))
+
+            posts_to_like = []
+            processed_count = 0
+
+            # Scroll and collect posts
+            while processed_count < limit:
+                tweet_elements = driver.find_elements(By.CSS_SELECTOR, '[data-testid="tweet"]')
+
+                for element in tweet_elements[processed_count:]:
+                    try:
+                        # Get username
+                        username_element = element.find_element(By.CSS_SELECTOR, '[data-testid="User-Name"] a')
+                        href = username_element.get_attribute('href')
+
+                        if not href:
+                            logger.warning("Username element found but href is None, skipping post")
+                            continue
+
+                        username = href.split('/')[-1]
+
+                        if not username:
+                            logger.warning("Empty username extracted, skipping post")
+                            continue
+
+                        # Get like button
+                        like_button = element.find_element(By.CSS_SELECTOR, '[data-testid="like"]')
+
+                        # Check if already liked (button would have different attributes)
+                        button_class = like_button.get_attribute("class")
+                        is_liked = button_class is not None and "r-1777fci" in button_class  # Twitter's liked button class
+
+                        if not is_liked:
+                            # Get tweet text for logging
+                            try:
+                                tweet_text_element = element.find_element(By.CSS_SELECTOR, '[data-testid="tweetText"]')
+                                tweet_text = tweet_text_element.text[:100] + "..." if len(tweet_text_element.text) > 100 else tweet_text_element.text
+                            except:
+                                tweet_text = "[No text content]"
+
+                            posts_to_like.append({
+                                'username': username,
+                                'tweet_text': tweet_text,
+                                'element': element,
+                                'like_button': like_button
+                            })
+
+                        processed_count += 1
+                        if processed_count >= limit:
+                            break
+
+                    except Exception as e:
+                        logger.warning(f"Failed to process post element: {e}")
+                        continue
+
+                # Scroll down for more posts
+                driver.execute_script("window.scrollTo(0, window.scrollY + 800);")
+                time.sleep(random.uniform(2, 4))
+
+            logger.info(f"Found {len(posts_to_like)} posts to like")
+            return posts_to_like
+
+        except Exception as e:
+            logger.error(f"Failed to get following posts: {e}")
+            return []
+
+    def like_post(self, post_data: dict):
+        """Like a specific post"""
+        self._ensure_initialized()
+
+        driver = self.driver
+        wait = self.wait
+        assert driver is not None
+        assert wait is not None
+
+        try:
+            like_button = post_data['like_button']
+
+            # Scroll to button
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", like_button)
+            time.sleep(random.uniform(1, 2))
+
+            # Click like button
+            self._safe_click(like_button)
+
+            # Wait for animation
+            time.sleep(random.uniform(1, 2))
+
+            logger.info(f"Successfully liked post by @{post_data['username']}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to like post by @{post_data['username']}: {e}")
+            return False
+
     def search_tweets(self, query: str):
         """Search for tweets with given query"""
         self._ensure_initialized()

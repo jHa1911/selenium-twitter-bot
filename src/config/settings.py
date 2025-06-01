@@ -22,6 +22,15 @@ class Settings(BaseSettings):
     default_search_query: str = Field("python programming", env="DEFAULT_SEARCH_QUERY")
     reply_keywords: str = Field("python,programming,coding,tutorial", env="REPLY_KEYWORDS")
 
+    # Auto-follow and Auto-like Configuration
+    enable_auto_follow_back: bool = Field(True, env="ENABLE_AUTO_FOLLOW_BACK")
+    enable_auto_like_following: bool = Field(True, env="ENABLE_AUTO_LIKE_FOLLOWING")
+    max_follows_per_day: int = Field(20, env="MAX_FOLLOWS_PER_DAY")
+    max_likes_per_day: int = Field(100, env="MAX_LIKES_PER_DAY")
+    max_likes_per_hour: int = Field(15, env="MAX_LIKES_PER_HOUR")
+    check_followers_interval: int = Field(3600, env="CHECK_FOLLOWERS_INTERVAL")  # seconds
+    like_following_posts_interval: int = Field(1800, env="LIKE_FOLLOWING_POSTS_INTERVAL")  # seconds
+
     # Browser Configuration
     headless_mode: bool = Field(False, env="HEADLESS_MODE")
     browser_timeout: int = Field(30, env="BROWSER_TIMEOUT")
