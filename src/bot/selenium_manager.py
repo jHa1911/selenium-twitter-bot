@@ -14,6 +14,7 @@ import random
 from loguru import logger
 from config.settings import Settings
 from typing import Optional
+from urllib.parse import quote_plus
 
 class SeleniumManager:
     def __init__(self, settings: Settings):
@@ -323,7 +324,7 @@ class SeleniumManager:
 
         try:
             # Navigate to search
-            search_url = f"https://twitter.com/search?q={query}&src=typed_query&f=live"
+            search_url = f"https://twitter.com/search?q={quote_plus(query)}&src=typed_query&f=live"
             driver.get(search_url)
             time.sleep(random.uniform(3, 5))
 
