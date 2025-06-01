@@ -68,10 +68,28 @@ class TwitterBot:
                 self.selenium_manager = None
                 return False
 
-            # Navigate to Twitter
-            if not self.selenium_manager.navigate_to_twitter():
+            # Navigate to Twitter to check login status
+            logger.info("Checking login status...")
+            if not self.selenium_manager.navigate_to_twitter_home():
                 logger.error("Failed to navigate to Twitter")
                 return False
+
+            # Check if already logged in
+            if self.selenium_manager.is_logged_in():
+                logger.info("Already logged in to Twitter - skipping login")
+                self._initialized = True
+                return True
+
+            # If not logged in, navigate to login page
+            logger.info("Not logged in, proceeding with login...")
+            if not self.selenium_manager.navigate_to_twitter():
+                logger.error("Failed to navigate to Twitter login page")
+                return False
+
+            # Navigate to Twitter
+    #        if not self.selenium_manager.navigate_to_twitter():
+    #            logger.error("Failed to navigate to Twitter")
+    #            return False
 
             # Login
             credentials = self.credentials_manager.get_twitter_credentials()

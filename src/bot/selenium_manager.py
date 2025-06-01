@@ -8,6 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 import os
 import tempfile
+from pathlib import Path
 import time
 import random
 from loguru import logger
@@ -47,6 +48,14 @@ class SeleniumManager:
         """Initialize Chrome WebDriver with appropriate options"""
         try:
             chrome_options = Options()
+
+            # Create persistent user data directory
+            user_data_dir = Path("browser_data")
+            user_data_dir.mkdir(exist_ok=True)
+            chrome_options.add_argument(f"--user-data-dir={user_data_dir.absolute()}")
+
+            # Profile directory for session persistence
+            chrome_options.add_argument("--profile-directory=TwitterBot")
 
             # Basic options
             chrome_options.add_argument("--no-sandbox")
@@ -148,6 +157,68 @@ class SeleniumManager:
                         break
         except Exception as e:
             logger.debug(f"No overlays to dismiss: {e}")
+
+    def navigate_to_twitter_home(self):
+        """Navigate to Twitter home page to check login status"""
+        self._ensure_initialized()
+
+        driver = self.driver
+        assert driver is not None
+
+        try:
+            driver.get("https://x.com/home")
+            time.sleep(3)  # Wait for page to load
+            logger.info("Navigated to Twitter home page")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to navigate to Twitter home: {e}")
+            return False
+
+    def is_logged_in(self):
+        """Check if user is currently logged in to Twitter"""
+        if not self.driver:
+            return False
+
+        try:
+            # Check for elements that indicate we're logged in
+            login_indicators = [
+                '[data-testid="SideNav_NewTweet_Button"]',  # Tweet button
+                '[data-testid="AppTabBar_Home_Link"]',       # Home tab
+                '[data-testid="primaryColumn"]',             # Main timeline
+                '[aria-label="Home timeline"]',              # Timeline aria label
+                '[data-testid="SideNav_AccountSwitcher_Button"]'  # Profile menu
+            ]
+
+            for indicator in login_indicators:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, indicator)
+                if elements and elements[0].is_displayed():
+                    logger.info("User is already logged in")
+                    return True
+
+            # Check if we're on login page (indicates we're not logged in)
+            current_url = self.driver.current_url
+            if 'login' in current_url or 'signin' in current_url:
+                logger.info("User is not logged in - on login page")
+                return False
+
+            # Additional check for login form elements
+            login_elements = [
+                'input[autocomplete="username"]',
+                '[data-testid="LoginForm_Login_Button"]'
+            ]
+
+            for element in login_elements:
+                if self.driver.find_elements(By.CSS_SELECTOR, element):
+                    logger.info("User is not logged in - login form detected")
+                    return False
+
+            # If we can't determine clearly, assume not logged in for safety
+            logger.warning("Could not determine login status clearly, assuming not logged in")
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking login status: {e}")
+            return False
 
     def navigate_to_twitter(self):
             """Navigate to Twitter login page

@@ -59,3 +59,6 @@ chromedriver.exe
 # OS
 .DS_Store
 Thumbs.db
+
+# Browser session data
+browser_data/
