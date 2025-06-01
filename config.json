@@ -1,0 +1,11 @@
+{
+  "bot_settings": {
+    "MAX_REPLIES_PER_DAY": 50,
+    "MAX_REPLIES_PER_HOUR": 10,
+    "MIN_DELAY_SECONDS": 15,
+    "MAX_DELAY_SECONDS": 30,
+    "ENABLE_AUTO_FOLLOW_BACK": false,
+    "ENABLE_AUTO_LIKE_FOLLOWING": false
+  },
+  "bot_status": "stopped"
+}
