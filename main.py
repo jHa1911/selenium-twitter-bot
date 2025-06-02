@@ -1,28 +1,6 @@
 import argparse
 import sys
-import os
-import json
 from pathlib import Path
-
-
-def load_bot_config():
-    """Load configuration from config.json if it exists"""
-    config_file = "config.json"
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r') as f:
-                config = json.load(f)
-                return config.get('bot_settings', {})
-        except json.JSONDecodeError:
-            pass
-    return {}
-
-# Load configuration at startup
-BOT_CONFIG = load_bot_config()
-
-# Apply configuration to environment or settings
-for key, value in BOT_CONFIG.items():
-    os.environ[key] = str(value)
 
 # Add src to Python path
 src_path = Path(__file__).parent / "src"

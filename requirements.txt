@@ -38,7 +38,3 @@ types-requests==2.31.0.10
 click==8.1.7
 tqdm==4.66.1
 schedule==1.2.0
-
-# Web Framework
-flask==2.3.3
-flask-cors==4.0.0
