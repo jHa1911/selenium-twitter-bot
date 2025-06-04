@@ -1,0 +1,15 @@
+{
+  "bot_settings": {
+    "SEARCH_QUERY": "messi",
+    "MAX_REPLIES_PER_DAY": 50,
+    "MAX_REPLIES_PER_HOUR": 10,
+    "MIN_DELAY_SECONDS": 15,
+    "MAX_DELAY_SECONDS": 30,
+    "ENABLE_AUTO_FOLLOW_BACK": false,
+    "ENABLE_AUTO_LIKE_FOLLOWING": false,
+    "MAX_FOLLOWS_PER_DAY": 20,
+    "MAX_LIKES_PER_DAY": 100,
+    "MAX_LIKES_PER_HOUR": 15
+  },
+  "bot_status": "stopped"
+}
