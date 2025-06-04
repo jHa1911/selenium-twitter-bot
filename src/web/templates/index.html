@@ -20,11 +20,19 @@
     </div>
 </div>
 
+
+
 <div class="row">
     <div class="col-md-6">
         <div class="config-card">
             <h3><i class="fas fa-comment"></i> Reply Settings</h3>
             <form id="config-form">
+                <div class="form-group">
+                    <label>Search Query</label>
+                    <input type="text" name="SEARCH_QUERY" value="{{ config.bot_settings.SEARCH_QUERY or '' }}" placeholder="Enter keywords to search for...">
+                    <small class="form-text">Keywords or phrases the bot should search for and reply to</small>
+                </div>
+
                 <div class="form-group">
                     <label>Max Replies Per Day</label>
                     <input type="number" name="MAX_REPLIES_PER_DAY" value="{{ config.bot_settings.MAX_REPLIES_PER_DAY }}" min="1" max="200">

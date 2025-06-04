@@ -49,11 +49,20 @@ class TwitterBotController {
 
     async startBot() {
         try {
+            // First save the current configuration
+            const configSaved = await this.saveConfig(true); // Pass true to indicate silent save
+
+            if (!configSaved) {
+                this.showNotification('Failed to save configuration before starting bot', 'error');
+                return;
+            }
+
+            // Then start the bot
             const response = await fetch('/api/bot/start', { method: 'POST' });
             const data = await response.json();
 
             if (data.status === 'success') {
-                this.showNotification('Bot started successfully!', 'success');
+                this.showNotification('Configuration saved and bot started successfully!', 'success');
             } else {
                 this.showNotification(data.message, 'error');
             }
@@ -77,53 +86,65 @@ class TwitterBotController {
         }
     }
 
-    async saveConfig() {
-    try {
-        // Get all form inputs
-        const inputs = this.configForm.querySelectorAll('input');
-        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    async saveConfig(silent = false) {
+        try {
+            // Get all form inputs
+            const inputs = this.configForm.querySelectorAll('input');
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
 
-        const config = {};
+            const config = {};
 
-        // Get regular inputs
-        inputs.forEach(input => {
-            if (input.type !== 'checkbox') {
-                config[input.name] = input.value;
+            // Get regular inputs
+            inputs.forEach(input => {
+                if (input.type !== 'checkbox') {
+                    config[input.name] = input.value;
+                }
+            });
+
+            // Get checkbox inputs
+            checkboxes.forEach(checkbox => {
+                config[checkbox.name] = checkbox.checked;
+            });
+
+            console.log('Sending config:', config); // Debug log
+
+            const response = await fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ bot_settings: config })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-        });
 
-        // Get checkbox inputs
-        checkboxes.forEach(checkbox => {
-            config[checkbox.name] = checkbox.checked;
-        });
+            const data = await response.json();
 
-        console.log('Sending config:', config); // Debug log
-
-        const response = await fetch('/api/config', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({ bot_settings: config })
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            if (data.status === 'success') {
+                if (!silent) {
+                    this.showNotification('Configuration saved successfully!', 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                }
+                return true;
+            } else {
+                if (!silent) {
+                    this.showNotification(data.message || 'Unknown error', 'error');
+                }
+                return false;
+            }
+        } catch (error) {
+            console.error('Save config error:', error);
+            if (!silent) {
+                this.showNotification(`Error saving configuration: ${error.message}`, 'error');
+            }
+            return false;
         }
-
-        const data = await response.json();
-
-        if (data.status === 'success') {
-            this.showNotification('Configuration saved successfully!', 'success');
-        } else {
-            this.showNotification(data.message || 'Unknown error', 'error');
-        }
-    } catch (error) {
-        console.error('Save config error:', error);
-        this.showNotification(`Error saving configuration: ${error.message}`, 'error');
     }
-}
 
     resetConfig() {
         if (confirm('Are you sure you want to reset to default settings?')) {

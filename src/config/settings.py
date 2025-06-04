@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     max_delay_seconds: int = Field(180, env="MAX_DELAY_SECONDS")
 
     # Search Configuration
-    default_search_query: str = Field("python programming", env="DEFAULT_SEARCH_QUERY")
+    default_search_query: str = Field("python programming", env="SEARCH_QUERY")
     reply_keywords: str = Field("python,programming,coding,tutorial", env="REPLY_KEYWORDS")
 
     # Auto-follow and Auto-like Configuration

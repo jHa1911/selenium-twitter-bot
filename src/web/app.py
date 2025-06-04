@@ -36,6 +36,9 @@ def update_config():
         if not bot_settings:
             return jsonify({'status': 'error', 'message': 'No bot_settings found in request'}), 400
 
+        print("Received config update:", bot_settings)
+
+
         # Validate numeric values
         numeric_fields = ['MAX_REPLIES_PER_DAY', 'MAX_REPLIES_PER_HOUR', 'MIN_DELAY_SECONDS',
                         'MAX_DELAY_SECONDS', 'MAX_FOLLOWS_PER_DAY', 'MAX_LIKES_PER_DAY', 'MAX_LIKES_PER_HOUR']
@@ -56,12 +59,19 @@ def update_config():
                 else:
                     bot_settings[field] = bool(bot_settings[field])
 
+        # Handle string fields
+        if 'SEARCH_QUERY' in bot_settings:
+            bot_settings['SEARCH_QUERY'] = str(bot_settings['SEARCH_QUERY']).strip()
+
+
         # Update configuration
         success = config_manager.update_config({'bot_settings': bot_settings})
         if not success:
             return jsonify({'status': 'error', 'message': 'Failed to save configuration'}), 500
 
+
         return jsonify({'status': 'success', 'message': 'Configuration updated successfully'})
+
 
     except Exception as e:
         return jsonify({'status': 'error', 'message': f'Server error: {str(e)}'}), 500
