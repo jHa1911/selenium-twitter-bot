@@ -1,6 +1,6 @@
 {
   "bot_settings": {
-    "SEARCH_QUERY": "messi",
+    "SEARCH_QUERY": "latest news",
     "MAX_REPLIES_PER_DAY": 50,
     "MAX_REPLIES_PER_HOUR": 10,
     "MIN_DELAY_SECONDS": 15,

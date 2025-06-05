@@ -1,10 +1,17 @@
-import random
+from google import genai
+import google.genai as genai
+#import random
 from typing import List, Optional
 from loguru import logger
 
 class ReplyGenerator:
-    def __init__(self):
-        self.python_replies = [
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
+
+        self.model_name = model
+        self.client = genai.Client(api_key=api_key)
+
+
+        """ self.python_replies = [
             "GN @giverep",
             "Lets connect @giverep"
         ]
@@ -27,27 +34,33 @@ class ReplyGenerator:
         self.generic_replies = [
             "GN @giverep",
             "Lets connect @giverep"
-        ]
+        ]"""
 
-    def generate_reply(self, tweet_text: str, keywords: List[str]) -> Optional[str]:
+    def generate_reply(self, tweet_text: str, keywords: List[str], max_length: int = 280) -> Optional[str]:
         """Generate an appropriate reply based on tweet content and keywords"""
         try:
             tweet_lower = tweet_text.lower()
+            prompt = f'Write a brief, engaging reply to this tweet: "{tweet_lower}"'
 
-            # Determine the most relevant category
-            if any(keyword in tweet_lower for keyword in ['giverep']):
-                replies = self.python_replies
-            elif any(keyword in tweet_lower for keyword in ['giverep']):
-                replies = self.programming_replies
-            elif any(keyword in tweet_lower for keyword in ['giverep']):
-                replies = self.coding_replies
-            elif any(keyword in tweet_lower for keyword in ['giverep']):
-                replies = self.tutorial_replies
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
+            if response and response.text:
+                reply = response.text.strip()
             else:
-                replies = self.generic_replies
+                return None
 
-            # Return random reply from selected category
-            return random.choice(replies)
+            # Remove quotes if Gemini adds them
+            if reply.startswith('"') and reply.endswith('"'):
+                reply = reply[1:-1]
+
+            # Ensure it's within Twitter's character limit
+            if len(reply) > max_length:
+                reply = reply[:max_length-3] + "..."
+
+            logger.info(f"Generated AI reply: {reply[:50]}...")
+            return reply
 
         except Exception as e:
             logger.error(f"Failed to generate reply: {e}")
@@ -82,3 +95,21 @@ class ReplyGenerator:
         except Exception as e:
             logger.error(f"Error checking if should reply: {e}")
             return False
+
+
+        """
+        # Determine the most relevant category
+            if any(keyword in tweet_lower for keyword in keywords):
+                replies = self.python_replies
+            elif any(keyword in tweet_lower for keyword in keywords):
+                replies = self.programming_replies
+            elif any(keyword in tweet_lower for keyword in keywords):
+                replies = self.coding_replies
+            elif any(keyword in tweet_lower for keyword in keywords):
+                replies = self.tutorial_replies
+            else:
+                replies = self.generic_replies
+
+            # Return random reply from selected category
+            return random.choice(replies)
+        """

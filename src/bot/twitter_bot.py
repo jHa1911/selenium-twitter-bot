@@ -15,7 +15,7 @@ class TwitterBot:
         self.test_mode = test_mode
         self.credentials_manager = CredentialsManager(settings)
         self.selenium_manager: Optional[SeleniumManager] = None
-        self.reply_generator = ReplyGenerator()
+        self.reply_generator = ReplyGenerator(api_key=settings.twitter_api_key)
 
         # Tracking variables
         self.replies_today = 0
@@ -311,12 +311,12 @@ class TwitterBot:
             if tweet_id in self.replied_tweets:
                 return False
 
-            # Check if we should reply
+            """# Check if we should reply
             if not self.reply_generator.should_reply_to_tweet(
                 tweet_text,
                 self.settings.reply_keywords_list
             ):
-                return False
+                return False"""
 
             # Generate reply
             reply_text = self.reply_generator.generate_reply(
