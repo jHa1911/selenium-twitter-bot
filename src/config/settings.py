@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     twitter_username: str = Field(..., env="TWITTER_USERNAME")
     twitter_password: str = Field(..., env="TWITTER_PASSWORD")
     twitter_email: str = Field(..., env="TWITTER_EMAIL")
+    twitter_api_key: str = Field(..., env="TWITTER_API_KEY")
 
     # Bot Configuration
     max_replies_per_day: int = Field(50, env="MAX_REPLIES_PER_DAY")
