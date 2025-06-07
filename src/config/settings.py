@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # Search Configuration
     default_search_query: str = Field("python programming", env="SEARCH_QUERY")
-    reply_keywords: str = Field("python,programming,coding,tutorial", env="REPLY_KEYWORDS")
+    reply_keywords: str = Field("giverep, @giverep", env="REPLY_KEYWORDS")
 
     # Auto-follow and Auto-like Configuration
     enable_auto_follow_back: bool = Field(True, env="ENABLE_AUTO_FOLLOW_BACK")
