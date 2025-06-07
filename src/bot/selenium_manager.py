@@ -529,9 +529,10 @@ class SeleniumManager:
         assert driver is not None
 
         try:
-            # Navigate to search
-            search_url = f"https://twitter.com/search?q={quote_plus(query)}&src=typed_query&f=live"
-            driver.get(search_url)
+            # Navigate to search page
+            base_url = "https://x.com" if query == "home" else f"https://x.com/search?q={quote_plus(query)}&src=typed_query&f=live"
+
+            driver.get(base_url)
             time.sleep(random.uniform(3, 5))
 
             logger.info(f"Searched for: {query}")
@@ -541,7 +542,7 @@ class SeleniumManager:
             logger.error(f"Search failed: {e}")
             return False
 
-    def get_tweets(self, limit: int = 10):
+    def get_tweets(self, limit: int = 200):
         """Get tweets from current page"""
         self._ensure_initialized()
 
@@ -598,6 +599,166 @@ class SeleniumManager:
         except Exception as e:
             logger.warning(f"Failed to extract tweet data: {e}")
             return None
+
+    def get_tweets_with_scroll(self, max_tweets: int = 500, scroll_pause_time: float = 3.0):
+        """Get tweets by continuously scrolling and collecting new ones"""
+        self._ensure_initialized()
+
+        driver = self.driver
+        assert driver is not None
+
+        all_tweets = []
+        processed_tweet_ids = set()
+        consecutive_no_new = 0
+        max_consecutive_no_new = 3
+
+        try:
+            logger.info(f"Starting to collect up to {max_tweets} tweets with scrolling...")
+
+            while len(all_tweets) < max_tweets and consecutive_no_new < max_consecutive_no_new:
+                # Get current tweets on page
+                current_tweet_elements = driver.find_elements(By.CSS_SELECTOR, '[data-testid="tweet"]')
+
+                new_tweets_found = 0
+                for element in current_tweet_elements:
+                    try:
+                        # Extract basic tweet data first to create ID
+                        tweet_data = self._extract_tweet_data(element)
+                        if not tweet_data:
+                            continue
+
+                        # Create unique ID
+                        tweet_id = f"{tweet_data['username']}:{hash(tweet_data['text'])}"
+
+                        # Skip if we've already processed this tweet
+                        if tweet_id in processed_tweet_ids:
+                            continue
+
+                        processed_tweet_ids.add(tweet_id)
+                        all_tweets.append(tweet_data)
+                        new_tweets_found += 1
+
+                        if len(all_tweets) >= max_tweets:
+                            break
+
+                    except Exception as e:
+                        logger.warning(f"Failed to process tweet element: {e}")
+                        continue
+
+                if new_tweets_found == 0:
+                    consecutive_no_new += 1
+                    logger.info(f"No new tweets found in this scroll. Count: {consecutive_no_new}")
+                else:
+                    consecutive_no_new = 0
+                    logger.info(f"Found {new_tweets_found} new tweets. Total: {len(all_tweets)}")
+
+                # Scroll down if we need more tweets
+                if len(all_tweets) < max_tweets and consecutive_no_new < max_consecutive_no_new:
+                    logger.info("Scrolling for more tweets...")
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(scroll_pause_time)
+
+            logger.info(f"Tweet collection completed. Found {len(all_tweets)} tweets total.")
+            return all_tweets
+
+        except Exception as e:
+            logger.error(f"Error in get_tweets_with_scroll: {e}")
+            return all_tweets  # Return what we have so far
+
+    def scroll_to_load_more_tweets(self, scroll_count: int = 3, pause_time: float = 3.0):
+        """Scroll down multiple times to load more tweets"""
+        self._ensure_initialized()
+
+        driver = self.driver
+        assert driver is not None
+
+        try:
+            for i in range(scroll_count):
+                logger.debug(f"Scroll {i+1}/{scroll_count}")
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(pause_time)
+
+                # Check if we've hit any end-of-timeline indicators
+                if self._check_timeline_end_indicators():
+                    logger.info("Detected end of timeline, stopping scroll")
+                    break
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error scrolling to load more tweets: {e}")
+            return False
+
+    def _check_timeline_end_indicators(self):
+        """Check for various end-of-timeline indicators"""
+        if not self.driver:
+            return False
+
+        try:
+            # Text-based indicators
+            page_text = self.driver.page_source.lower()
+            end_phrases = [
+                "you're all caught up",
+                "nothing more to load",
+                "end of timeline",
+                "no more tweets"
+            ]
+
+            for phrase in end_phrases:
+                if phrase in page_text:
+                    return True
+
+            # Element-based indicators
+            end_elements = [
+                '[data-testid="emptyState"]',
+                '.css-1dbjc4n.r-1loqt21',  # Common empty state classes
+                '[aria-label*="end"]',
+                '[aria-label*="caught up"]'
+            ]
+
+            for selector in end_elements:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                if elements and any(el.is_displayed() for el in elements):
+                    return True
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"Error checking timeline end indicators: {e}")
+            return False
+
+    def get_current_scroll_position(self):
+        """Get current scroll position"""
+        if not self.driver:
+            return 0
+        try:
+            return self.driver.execute_script("return window.pageYOffset;")
+        except:
+            return 0
+
+    def get_page_height(self):
+        """Get total page height"""
+        if not self.driver:
+            return 0
+        try:
+            return self.driver.execute_script("return document.body.scrollHeight;")
+        except:
+            return 0
+
+    def has_reached_bottom(self):
+        """Check if we've reached the bottom of the page"""
+        if not self.driver:
+            return True
+        try:
+            # Get scroll position and page dimensions
+            scroll_top = self.driver.execute_script("return window.pageYOffset;")
+            window_height = self.driver.execute_script("return window.innerHeight;")
+            doc_height = self.driver.execute_script("return document.body.scrollHeight;")
+
+            # Consider "bottom" if we're within 100px of the actual bottom
+            return (scroll_top + window_height) >= (doc_height - 100)
+        except:
+            return True
 
     def reply_to_tweet(self, tweet_data: dict, reply_text: str):
         """Reply to a specific tweet with enhanced error handling"""
@@ -687,7 +848,7 @@ class SeleniumManager:
             reply_textarea.clear()
             time.sleep(random.uniform(0.3, 0.7))
 
-            # Type reply with human-like delays
+            """# Type reply with human-like delays
             logger.info("Typing reply text...")
             for i, char in enumerate(reply_text):
                 reply_textarea.send_keys(char)
@@ -702,7 +863,16 @@ class SeleniumManager:
 
                 # Occasional longer pauses to simulate thinking
                 if i > 0 and i % random.randint(15, 25) == 0:
-                    time.sleep(random.uniform(0.5, 1.2))
+                    time.sleep(random.uniform(0.5, 1.2))"""
+
+            logger.info("Setting reply text via clipboard injection...")
+            driver.execute_script("""
+                const text = arguments[1];
+                const dataTransfer = new DataTransfer();
+                dataTransfer.setData('text', text);
+                const event = new ClipboardEvent('paste', { clipboardData: dataTransfer, bubbles: true });
+                arguments[0].dispatchEvent(event);
+            """, reply_textarea, reply_text)
 
             # Wait before submitting
             time.sleep(random.uniform(1, 2))

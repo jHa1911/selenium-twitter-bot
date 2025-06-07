@@ -3,11 +3,14 @@ import random
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from loguru import logger
+from selenium.webdriver.common.by import By
 from config.settings import Settings
 from config.credentials import CredentialsManager
 from bot.selenium_manager import SeleniumManager
 from bot.reply_generator import ReplyGenerator
 from utils.helpers import random_delay
+
+
 
 class TwitterBot:
     def __init__(self, settings: Settings, test_mode: bool = False):
@@ -34,6 +37,25 @@ class TwitterBot:
 
 
         logger.info(f"TwitterBot initialized {'(TEST MODE)' if test_mode else ''}")
+
+    def _validate_driver(self) -> bool:
+        """Validate that the WebDriver is available and working"""
+        try:
+            if not self.selenium_manager:
+                logger.error("SeleniumManager is None")
+                return False
+
+            if not hasattr(self.selenium_manager, 'driver') or self.selenium_manager.driver is None:
+                logger.error("WebDriver is None")
+                return False
+
+            # Test if driver is still responsive
+            self.selenium_manager.driver.current_url
+            return True
+
+        except Exception as e:
+            logger.error(f"Driver validation failed: {e}")
+            return False
 
     def run(self):
         """Main bot execution loop"""
@@ -259,8 +281,8 @@ class TwitterBot:
                 logger.warning("Search failed, retrying...")
                 return
 
-            # Get tweets
-            tweets = self.selenium_manager.get_tweets(limit=20)
+            """# Get tweets
+            tweets = self.selenium_manager.get_tweets(limit=200)
             if not tweets:
                 logger.warning("No tweets found")
                 return
@@ -282,17 +304,171 @@ class TwitterBot:
                         self.settings.max_delay_seconds
                     )
                     logger.info(f"Waiting {delay} seconds before next action...")
-                    time.sleep(delay)
+                    time.sleep(delay)"""
+
+            # Use the new method to get and process all tweets
+            replied_count = self._process_all_tweets_in_homepage()
 
             logger.info(f"Reply cycle completed. Replied to {replied_count} tweets.")
 
             # Longer delay between cycles
-            cycle_delay = random.randint(300, 600)  # 5-10 minutes
+            cycle_delay = random.randint(30, 60)  # 1 minutes
             logger.info(f"Cycle complete. Waiting {cycle_delay} seconds before next cycle...")
             time.sleep(cycle_delay)
 
         except Exception as e:
             logger.error(f"Error in reply cycle: {e}")
+
+    def _process_all_tweets_in_homepage(self) -> int:
+        """Process all tweets in homepage by scrolling and replying until end"""
+        if not self._validate_driver():
+            logger.error("Driver not available for processing tweets")
+            return 0
+
+        replied_count = 0
+        processed_tweets = set()  # Track tweets in this session to avoid duplicates
+        consecutive_no_new_tweets = 0
+        max_consecutive_no_new_tweets = 3  # Stop after 3 consecutive scrolls with no new tweets
+
+        try:
+            logger.info("Starting to process all tweets in homepage...")
+
+            # Get initial page height with error handling
+            try:
+                if not self.selenium_manager or not self.selenium_manager.driver:
+                    logger.error("Selenium manager or driver not initialized")
+                    return 0
+                last_height = self.selenium_manager.driver.execute_script("return document.body.scrollHeight")
+            except Exception as e:
+                logger.error(f"Failed to get initial page height: {e}")
+                return 0
+
+            while True:
+                # Check if we've hit daily limits
+                if not self._should_continue_today():
+                    logger.info("Daily reply limit reached. Stopping tweet processing.")
+                    break
+
+                # Get current tweets on page
+                if not self.selenium_manager:
+                    logger.error("SeleniumManager is not initialized")
+                    return 0
+
+                tweets = self.selenium_manager.get_tweets(limit=50)  # Process in batches
+
+                if not tweets:
+                    logger.warning("No tweets found on current page")
+                    break
+
+                # Process new tweets
+                new_tweets_found = 0
+                for tweet in tweets:
+                    tweet_text = tweet.get('text', '')
+                    username = tweet.get('username', '')
+                    tweet_id = f"{username}:{hash(tweet_text)}"
+
+                    # Skip if we've already processed this tweet in this session
+                    if tweet_id in processed_tweets:
+                        continue
+
+                    processed_tweets.add(tweet_id)
+                    new_tweets_found += 1
+
+                    # Check if we should stop due to hourly limits
+                    if self.replies_this_hour >= self.settings.max_replies_per_hour:
+                        logger.info("Hourly reply limit reached. Continuing to scroll but not replying until next hour.")
+                        continue
+
+                    # Process the tweet
+                    if self._process_tweet(tweet):
+                        replied_count += 1
+                        self.replies_today += 1
+                        self.replies_this_hour += 1
+
+                        logger.info(f"Progress: {replied_count} replies sent, {self.replies_today}/{self.settings.max_replies_per_day} daily limit")
+
+                        # Random delay between replies
+                        delay = random.randint(
+                            self.settings.min_delay_seconds,
+                            self.settings.max_delay_seconds
+                        )
+                        logger.info(f"Waiting {delay} seconds before next action...")
+                        time.sleep(delay)
+
+                # Check if we found new tweets
+                if new_tweets_found == 0:
+                    consecutive_no_new_tweets += 1
+                    logger.info(f"No new tweets found. Consecutive count: {consecutive_no_new_tweets}")
+                else:
+                    consecutive_no_new_tweets = 0
+                    logger.info(f"Found {new_tweets_found} new tweets to process")
+
+                # Stop if we haven't found new tweets for several scrolls
+                if consecutive_no_new_tweets >= max_consecutive_no_new_tweets:
+                    logger.info("Reached end of available tweets. No new tweets found after multiple scrolls.")
+                    break
+
+                # Scroll down to load more tweets
+                logger.info("Scrolling down to load more tweets...")
+                self.selenium_manager.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+                # Wait for new content to load
+                time.sleep(random.uniform(3, 5))
+
+                # Check if page height changed (new content loaded)
+                new_height = self.selenium_manager.driver.execute_script("return document.body.scrollHeight")
+                if new_height == last_height:
+                    logger.info("Page height didn't change - might have reached the end")
+                    consecutive_no_new_tweets += 1
+                else:
+                    last_height = new_height
+                    consecutive_no_new_tweets = 0  # Reset counter if page grew
+
+                # Additional check for "end of timeline" indicators
+                if self._check_end_of_timeline():
+                    logger.info("Detected end of timeline indicator")
+                    break
+
+        except Exception as e:
+            logger.error(f"Error in processing all tweets: {e}")
+
+        logger.info(f"Finished processing homepage. Total replies sent: {replied_count}")
+        return replied_count
+
+    def _check_end_of_timeline(self) -> bool:
+        """Check for indicators that we've reached the end of the timeline"""
+        if not self.selenium_manager or not self.selenium_manager.driver:
+            return False
+
+        try:
+            # Common end-of-timeline indicators
+            end_indicators = [
+                "You're all caught up",
+                "Nothing more to load",
+                "End of timeline",
+                "No more tweets",
+                '[data-testid="emptyState"]',
+                '.css-1dbjc4n.r-1loqt21.r-1otgn73.r-1i6wzkk.r-lrvibr'  # Twitter's empty state class
+            ]
+
+            page_source = self.selenium_manager.driver.page_source.lower()
+
+            # Check for text indicators
+            for indicator in end_indicators[:4]:  # Text indicators
+                if indicator.lower() in page_source:
+                    return True
+
+            # Check for element indicators
+            for selector in end_indicators[4:]:  # CSS selectors
+                elements = self.selenium_manager.driver.find_elements(By.CSS_SELECTOR, selector)
+                if elements and any(el.is_displayed() for el in elements):
+                    return True
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"Error checking end of timeline: {e}")
+            return False
 
     def _process_tweet(self, tweet_data: Dict) -> bool:
         """Process a single tweet - decide if we should reply and do it"""
