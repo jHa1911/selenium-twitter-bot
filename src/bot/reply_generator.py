@@ -1,6 +1,6 @@
 from google import genai
 import google.genai as genai
-#import random
+import random
 from typing import List, Optional
 from loguru import logger
 
@@ -11,35 +11,25 @@ class ReplyGenerator:
         self.client = genai.Client(api_key=api_key)
 
 
-        """ self.python_replies = [
-            "GN @giverep",
-            "Lets connect @giverep"
-        ]
+        # Simple custom replies by keyword
+        self.custom_replies = {
+            "@giverep": ["Let's connect @giverep", "GM @giverep", "GN @giverep", "Hey @giverep, how's it going?"],
+            "giverep": ["Let's connect @giverep", "GM @giverep", "GN @giverep", "Hey @giverep, how's it going?"],
 
-        self.programming_replies = [
-            "GN @giverep",
-            "Lets connect @giverep"
-        ]
-
-        self.coding_replies = [
-            "GN @giverep",
-            "Lets connect @giverep"
-        ]
-
-        self.tutorial_replies = [
-            "GN @giverep",
-            "Lets connect @giverep"
-        ]
-
-        self.generic_replies = [
-            "GN @giverep",
-            "Lets connect @giverep"
-        ]"""
+        }
 
     def generate_reply(self, tweet_text: str, keywords: List[str], max_length: int = 280) -> Optional[str]:
         """Generate an appropriate reply based on tweet content and keywords"""
         try:
             tweet_lower = tweet_text.lower()
+            # Check if any keyword matches and return custom reply
+            for keyword in keywords:
+                if keyword.lower() in tweet_lower:
+                    if keyword.lower() in self.custom_replies:
+                        reply = random.choice(self.custom_replies[keyword.lower()])
+                        logger.info(f"Custom reply for '{keyword}': {reply}")
+                        return reply
+
             prompt = f'Write a brief, engaging reply to this tweet but do not include non-BMP Characters : "{tweet_lower}"'
 
             response = self.client.models.generate_content(
@@ -48,19 +38,22 @@ class ReplyGenerator:
             )
             if response and response.text:
                 reply = response.text.strip()
-            else:
-                return None
 
-            # Remove quotes if Gemini adds them
-            if reply.startswith('"') and reply.endswith('"'):
-                reply = reply[1:-1]
+                # Remove quotes if Gemini adds them
+                if reply.startswith('"') and reply.endswith('"'):
+                    reply = reply[1:-1]
 
-            # Ensure it's within Twitter's character limit
-            if len(reply) > max_length:
-                reply = reply[:max_length-3] + "..."
+                # Ensure it's within Twitter's character limit
+                if len(reply) > max_length:
+                    reply = reply[:max_length-3] + "..."
 
-            logger.info(f"Generated AI reply: {reply}...")
-            return reply
+                logger.info(f"Generated AI reply: {reply}...")
+                return reply
+
+            # Fallback
+            return "Thanks for sharing!"
+
+
 
         except Exception as e:
             logger.error(f"Failed to generate reply: {e}")
@@ -81,9 +74,9 @@ class ReplyGenerator:
             if tweet_text.startswith('RT @'):
                 return False
 
-            # Avoid very short tweets
+            """# Avoid very short tweets
             if len(tweet_text.strip()) < 20:
-                return False
+                return False"""
 
             # Avoid tweets with too many hashtags (likely spam)
             hashtag_count = tweet_text.count('#')
