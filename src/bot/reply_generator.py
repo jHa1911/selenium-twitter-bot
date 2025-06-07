@@ -40,7 +40,7 @@ class ReplyGenerator:
         """Generate an appropriate reply based on tweet content and keywords"""
         try:
             tweet_lower = tweet_text.lower()
-            prompt = f'Write a brief, engaging reply to this tweet: "{tweet_lower}"'
+            prompt = f'Write a brief, engaging reply to this tweet but do not include non-BMP Characters : "{tweet_lower}"'
 
             response = self.client.models.generate_content(
                 model=self.model_name,
@@ -59,7 +59,7 @@ class ReplyGenerator:
             if len(reply) > max_length:
                 reply = reply[:max_length-3] + "..."
 
-            logger.info(f"Generated AI reply: {reply[:50]}...")
+            logger.info(f"Generated AI reply: {reply}...")
             return reply
 
         except Exception as e:
