@@ -1,6 +1,6 @@
 {
   "bot_settings": {
-    "SEARCH_QUERY": "giverep",
+    "SEARCH_QUERY": "dydx",
     "MAX_REPLIES_PER_DAY": 1000,
     "MAX_REPLIES_PER_HOUR": 300,
     "MIN_DELAY_SECONDS": 5,

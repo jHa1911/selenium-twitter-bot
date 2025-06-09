@@ -35,6 +35,9 @@ class TwitterBot:
         self.followed_users = set()  # Track users we've already followed
         self.liked_posts = set()     # Track posts we've already liked
 
+        self.tweets_today = 0
+        self.last_tweet_time = datetime.now() - timedelta(minutes=settings.tweet_interval_minutes)
+
 
         logger.info(f"TwitterBot initialized {'(TEST MODE)' if test_mode else ''}")
 
@@ -68,6 +71,7 @@ class TwitterBot:
             # Main loop
             while True:
                 try:
+                    #self._post_tweet_cycle()
                     self._check_hourly_reset()
                     self._reset_daily_counters_if_needed()
 
@@ -159,6 +163,41 @@ class TwitterBot:
             logger.error(f"Initialization failed: {e}")
             self.selenium_manager = None
             return False
+
+    def _should_tweet(self) -> bool:
+        """Check if it's time to post a tweet"""
+        if not self.settings.enable_auto_tweeting:
+            return False
+
+        if self.tweets_today >= self.settings.max_tweets_per_day:
+            return False
+
+        time_since_last_tweet = datetime.now() - self.last_tweet_time
+        return time_since_last_tweet.total_seconds() >= self.settings.tweet_interval_minutes * 60
+
+    def _post_tweet_cycle(self):
+        """Post a single tweet if conditions are met"""
+        if not self._should_tweet():
+            return
+
+        if not self._initialized or not self.selenium_manager:
+            logger.error("Bot not properly initialized for tweeting")
+            return
+
+        try:
+            # Select a random tweet text
+            tweet_text = random.choice(self.settings.tweet_texts)
+
+            # Post the tweet
+            if self.selenium_manager.post_tweet(tweet_text):
+                self.tweets_today += 1
+                self.last_tweet_time = datetime.now()
+                logger.info(f"Posted tweet. Total today: {self.tweets_today}/{self.settings.max_tweets_per_day}")
+            else:
+                logger.warning("Failed to post tweet")
+
+        except Exception as e:
+            logger.error(f"Error in tweet posting cycle: {e}")
 
     def _execute_auto_follow_cycle(self):
         """Execute auto-follow back cycle"""

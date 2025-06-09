@@ -314,6 +314,86 @@ class SeleniumManager:
             logger.error(f"Login failed: {e}")
             return False
 
+    # Post a tweet with the given text
+
+    def post_tweet(self, text: str) -> bool:
+        """Post a tweet with the given text"""
+        self._ensure_initialized()
+
+        driver = self.driver
+        wait = self.wait
+        assert driver is not None
+        assert wait is not None
+
+        try:
+            # Navigate to home page to ensure we're in the right context
+            driver.get("https://x.com/home")
+            time.sleep(random.uniform(2, 4))
+
+            # Dismiss any overlays
+            self._dismiss_overlays()
+
+            # Find the tweet button
+            compose_selectors = [
+                '[data-testid="SideNav_NewTweet_Button"]',
+                'a[href="/compose/tweet"]'
+            ]
+
+            compose_button = None
+            for selector in compose_selectors:
+                try:
+                    compose_button = wait.until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+                    break
+                except TimeoutException:
+                    continue
+
+            if not compose_button:
+                raise Exception("Could not find compose tweet button")
+
+            # Click the compose button
+            self._safe_click(compose_button)
+            time.sleep(random.uniform(1, 2))
+
+            # Wait for the tweet textarea
+            textarea = wait.until(
+                EC.presence_of_element_located((By.CSS_SELECTOR,
+                '[data-testid="tweetTextarea_0"]'))
+            )
+
+            # Focus and type the tweet
+            self._safe_click(textarea)
+            time.sleep(random.uniform(0.5, 1))
+
+            # Type tweet with human-like delays
+            for char in text:
+                textarea.send_keys(char)
+                time.sleep(random.uniform(0.05, 0.15))
+
+            time.sleep(random.uniform(1, 2))
+
+            # Find the tweet button
+            tweet_button = wait.until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR,
+                '[data-testid="tweetButton"]'))
+            )
+
+            # Click the tweet button
+            self._safe_click(tweet_button)
+
+            # Wait for confirmation
+            time.sleep(random.uniform(3, 5))
+
+            logger.info(f"Successfully posted tweet: {text[:50]}...")
+            return True
+
+        except TimeoutException as e:
+            logger.error(f"Timeout while posting tweet: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to post tweet: {e}")
+            return False
+
     def get_followers(self, limit: int = 50):
         """Get list of followers who are not being followed back"""
         self._ensure_initialized()
@@ -530,7 +610,7 @@ class SeleniumManager:
 
         try:
             # Navigate to search page
-            base_url = "https://x.com" if query == "home" else f"https://x.com/search?q={quote_plus(query)}&src=typed_query&f=live"
+            base_url = "https://x.com" if query == "home" else f"https://x.com/search?q={quote_plus(query)}&src=typed_query&f=top"
 
             driver.get(base_url)
             time.sleep(random.uniform(3, 5))

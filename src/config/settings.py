@@ -32,6 +32,18 @@ class Settings(BaseSettings):
     check_followers_interval: int = Field(3600, env="CHECK_FOLLOWERS_INTERVAL")  # seconds
     like_following_posts_interval: int = Field(1800, env="LIKE_FOLLOWING_POSTS_INTERVAL")  # seconds
 
+    # Auto posting Configuration
+    enable_auto_tweeting: bool = True
+    tweet_interval_minutes: int = 180  # 3 hours by default
+    max_tweets_per_day: int = 5
+    tweet_texts: List[str] = Field( default_factory=lambda: [
+        "Just sharing my thoughts today! #ThoughtOfTheDay",
+        "What's everyone working on? I'd love to hear about it!",
+        "Beautiful day to learn something new! 🌞",
+        "Sharing some insights from my recent experiences...",
+        "Engaging with the community today! 👋"
+    ])
+
     # Browser Configuration
     headless_mode: bool = Field(False, env="HEADLESS_MODE")
     browser_timeout: int = Field(30, env="BROWSER_TIMEOUT")
