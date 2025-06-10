@@ -6,6 +6,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 import os
 import tempfile
 from pathlib import Path
@@ -21,6 +23,27 @@ class SeleniumManager:
         self.settings = settings
         self.driver: Optional[webdriver.Chrome] = None
         self.wait: Optional[WebDriverWait] = None
+        self._element_cache = {}
+        self._selector_cache = {
+            'login_indicators': [
+                '[data-testid="SideNav_NewTweet_Button"]',
+                '[data-testid="AppTabBar_Home_Link"]',
+                '[data-testid="primaryColumn"]',
+                '[aria-label="Home timeline"]',
+                '[data-testid="SideNav_AccountSwitcher_Button"]'
+            ],
+            'compose_selectors': [
+                '[data-testid="SideNav_NewTweet_Button"]',
+                'a[href="/compose/tweet"]'
+            ],
+            'overlay_selectors': [
+                '[data-testid="app-bar-close"]',
+                '[aria-label="Close"]',
+                '[data-testid="mask"]',
+                '.r-1p0dtai',
+                '[role="button"][aria-label*="Close"]'
+            ]
+        }
         self._setup_webdriver_env()
 
     def _setup_webdriver_env(self):
@@ -139,23 +162,25 @@ class SeleniumManager:
             return
 
         try:
-            # Common overlay close selectors
-            overlay_selectors = [
-                '[data-testid="app-bar-close"]',
-                '[aria-label="Close"]',
-                '[data-testid="mask"]',
-                '.r-1p0dtai',  # Common Twitter overlay class
-                '[role="button"][aria-label*="Close"]'
-            ]
+            # Single DOM query for all overlay types
+            all_overlays = self.driver.execute_script("""
+                const selectors = arguments[0];
+                const results = [];
+                selectors.forEach(selector => {
+                    const elements = document.querySelectorAll(selector);
+                    elements.forEach(el => {
+                        if (el.offsetParent !== null && !el.disabled) {
+                            results.push(el);
+                        }
+                    });
+                });
+                return results;
+            """, self._selector_cache['overlay_selectors'])
 
-            for selector in overlay_selectors:
-                overlays = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                for overlay in overlays:
-                    if overlay.is_displayed() and overlay.is_enabled():
-                        logger.info("Dismissing overlay")
-                        self._safe_click(overlay)
-                        time.sleep(random.uniform(0.5, 1))
-                        break
+            if all_overlays:
+                # Click first visible overlay
+                self.driver.execute_script("arguments[0].click();", all_overlays[0])
+                time.sleep(random.uniform(0.3, 0.6))  # Reduced wait time
         except Exception as e:
             logger.debug(f"No overlays to dismiss: {e}")
 
@@ -610,7 +635,7 @@ class SeleniumManager:
 
         try:
             # Navigate to search page
-            base_url = "https://x.com" if query == "home" else f"https://x.com/search?q={quote_plus(query)}&src=typed_query&f=top"
+            base_url = "https://x.com" if query == "home" else f"https://x.com/search?q={quote_plus(query)}&src=typed_query&f=live"
 
             driver.get(base_url)
             time.sleep(random.uniform(3, 5))
@@ -659,8 +684,8 @@ class SeleniumManager:
         """Extract data from tweet element"""
         try:
             # Get tweet text
-            tweet_text_element = tweet_element.find_element(By.CSS_SELECTOR, '[data-testid="tweetText"]')
-            tweet_text = tweet_text_element.text if tweet_text_element else ""
+            tweet_text_elements = tweet_element.find_elements(By.CSS_SELECTOR, '[data-testid="tweetText"]')
+            tweet_text = tweet_text_elements[0].text if tweet_text_elements else ""
 
             # Get username
             username_element = tweet_element.find_element(By.CSS_SELECTOR, '[data-testid="User-Name"] a')
@@ -680,7 +705,7 @@ class SeleniumManager:
             logger.warning(f"Failed to extract tweet data: {e}")
             return None
 
-    def get_tweets_with_scroll(self, max_tweets: int = 500, scroll_pause_time: float = 3.0):
+    def get_tweets_with_scroll(self, max_tweets: int = 500, scroll_pause_time: float = 1.5):
         """Get tweets by continuously scrolling and collecting new ones"""
         self._ensure_initialized()
 
@@ -696,49 +721,116 @@ class SeleniumManager:
             logger.info(f"Starting to collect up to {max_tweets} tweets with scrolling...")
 
             while len(all_tweets) < max_tweets and consecutive_no_new < max_consecutive_no_new:
-                # Get current tweets on page
-                current_tweet_elements = driver.find_elements(By.CSS_SELECTOR, '[data-testid="tweet"]')
+                # Batch extract all tweet data in single JavaScript execution
+                time.sleep(random.uniform(0.8, 2.5))
+
+                if random.random() < 0.2:  # Occasionally wait longer
+                    time.sleep(random.uniform(3.0, 5.0))
+
+
+                tweet_data_batch = driver.execute_script("""
+                    const tweets = document.querySelectorAll('[data-testid="tweet"]');
+                    const results = [];
+
+                    tweets.forEach((tweet, index) => {
+                        try {
+                            // Extract username
+                            const userLink = tweet.querySelector('[data-testid="User-Name"] a');
+                            if (!userLink || !userLink.href) return;
+
+                            const username = userLink.href.split('/').pop();
+                            if (!username) return;
+
+                            // Extract tweet text
+                            const textElement = tweet.querySelector('[data-testid="tweetText"]');
+                            const text = textElement ? textElement.textContent : '';
+
+                            // Extract reply button
+                            const replyButton = tweet.querySelector('[data-testid="reply"]');
+                            if (!replyButton) return;
+
+                            results.push({
+                                username: username,
+                                text: text,
+                                index: index,
+                                hasReplyButton: true
+                            });
+                        } catch (e) {
+                            // Skip problematic tweets
+                        }
+                    });
+
+                    return results;
+                """)
 
                 new_tweets_found = 0
-                for element in current_tweet_elements:
-                    try:
-                        # Extract basic tweet data first to create ID
-                        tweet_data = self._extract_tweet_data(element)
-                        if not tweet_data:
-                            continue
 
-                        # Create unique ID
+                # Process batch results
+                for tweet_data in tweet_data_batch:
+                    if random.random() < 0.15:  # Occasionally skip processing to simulate human-like behavior
+                        continue
+                    try:
                         tweet_id = f"{tweet_data['username']}:{hash(tweet_data['text'])}"
 
-                        # Skip if we've already processed this tweet
                         if tweet_id in processed_tweet_ids:
                             continue
 
                         processed_tweet_ids.add(tweet_id)
-                        all_tweets.append(tweet_data)
-                        new_tweets_found += 1
+
+                        # Get actual elements for interaction (only when needed)
+                        tweet_elements = driver.find_elements(By.CSS_SELECTOR, '[data-testid="tweet"]')
+                        if tweet_data['index'] < len(tweet_elements):
+                            tweet_element = tweet_elements[tweet_data['index']]
+                            reply_button = tweet_element.find_element(By.CSS_SELECTOR, '[data-testid="reply"]')
+
+                            all_tweets.append({
+                                'text': tweet_data['text'],
+                                'username': tweet_data['username'],
+                                'element': tweet_element,
+                                'reply_button': reply_button
+                            })
+                            new_tweets_found += 1
 
                         if len(all_tweets) >= max_tweets:
                             break
 
                     except Exception as e:
-                        logger.warning(f"Failed to process tweet element: {e}")
+                        logger.warning(f"Failed to process tweet: {e}")
                         continue
 
                 if new_tweets_found == 0:
                     consecutive_no_new += 1
-                    logger.info(f"No new tweets found in this scroll. Count: {consecutive_no_new}")
                 else:
                     consecutive_no_new = 0
                     logger.info(f"Found {new_tweets_found} new tweets. Total: {len(all_tweets)}")
 
-                # Scroll down if we need more tweets
+                # Optimized scrolling with momentum
                 if len(all_tweets) < max_tweets and consecutive_no_new < max_consecutive_no_new:
-                    logger.info("Scrolling for more tweets...")
-                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(scroll_pause_time)
+                    # Smart scroll with end detection
+                    reached_end = driver.execute_script("""
+                        const currentHeight = document.body.scrollHeight;
+                        window.scrollTo(0, currentHeight + Math.floor(Math.random() * 300 + 100));
 
-            logger.info(f"Tweet collection completed. Found {len(all_tweets)} tweets total.")
+                        // Quick end detection
+                        const endIndicators = [
+                            "you're all caught up",
+                            "nothing more to load",
+                            "end of timeline"
+                        ];
+
+                        const pageText = document.body.textContent.toLowerCase();
+                        return endIndicators.some(indicator => pageText.includes(indicator));
+                    """)
+
+                    if reached_end:
+                        logger.info("Reached end of timeline")
+                        break
+
+                    scroll_pause = scroll_pause_time + random.uniform(-0.5, 1.5)
+                    time.sleep(scroll_pause)
+
+
+            logger.info(f"Optimized tweet collection completed. Found {len(all_tweets)} tweets total.")
             return all_tweets
 
         except Exception as e:
@@ -841,173 +933,110 @@ class SeleniumManager:
             return True
 
     def reply_to_tweet(self, tweet_data: dict, reply_text: str):
-        """Reply to a specific tweet with enhanced error handling"""
+        """Ultra-fast tweet reply with optimized text injection"""
         self._ensure_initialized()
 
-        # Local references for type safety
         driver = self.driver
         wait = self.wait
         assert driver is not None
         assert wait is not None
 
         try:
-            # Dismiss any potential overlays first
             self._dismiss_overlays()
 
-            # Get reply button
+            time.sleep(random.uniform(1.7, 2.5))
+
             reply_button = tweet_data['reply_button']
 
-            # Enhanced scrolling - scroll to center of viewport
+            # Optimized scroll and click
             driver.execute_script("""
-                arguments[0].scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'center',
-                    inline: 'center'
-                });
+                arguments[0].scrollIntoView({block: 'center'});
+                arguments[0].click();
             """, reply_button)
 
-            # Wait longer for any animations to complete
-            time.sleep(random.uniform(2, 4))
+            time.sleep(random.uniform(2.2, 3.7))
 
-            # Wait specifically for this reply button to be clickable
-            try:
-                # Wait for the specific reply button to be clickable
-                wait.until(lambda d: reply_button.is_displayed() and reply_button.is_enabled())
+            # Fast textarea detection with multiple selectors
+            reply_textarea = driver.execute_script("""
+                const selectors = [
+                    '[data-testid="tweetTextarea_0"]',
+                    '[data-testid="tweetTextarea_1"]',
+                    'div[role="textbox"][data-testid*="tweetTextarea"]',
+                    'div[contenteditable="true"][role="textbox"]'
+                ];
 
-                # Additional check - wait for element to be clickable using EC
-                clickable_reply = wait.until(
-                    EC.element_to_be_clickable(reply_button)
-                )
-
-            except TimeoutException:
-                logger.warning("Reply button not immediately clickable, trying alternative approach")
-                # Try finding reply button again by tweet element
-                try:
-                    tweet_element = tweet_data['element']
-                    clickable_reply = tweet_element.find_element(By.CSS_SELECTOR, '[data-testid="reply"]')
-                except:
-                    raise Exception("Could not locate clickable reply button")
-
-            # Dismiss overlays again in case any appeared during scroll
-            self._dismiss_overlays()
-
-            # Try safe click
-            logger.info(f"Attempting to click reply button for @{tweet_data['username']}")
-            self._safe_click(clickable_reply)
-
-            # Wait for reply dialog with multiple possible selectors
-            reply_textarea = None
-            textarea_selectors = [
-                '[data-testid="tweetTextarea_0"]',
-                '[data-testid="tweetTextarea_1"]',
-                'div[role="textbox"][data-testid*="tweetTextarea"]',
-                'div[contenteditable="true"][role="textbox"]'
-            ]
-
-            for selector in textarea_selectors:
-                try:
-                    reply_textarea = wait.until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-                    )
-                    logger.info(f"Found reply textarea with selector: {selector}")
-                    break
-                except TimeoutException:
-                    continue
+                for (let selector of selectors) {
+                    const element = document.querySelector(selector);
+                    if (element && element.offsetParent !== null) {
+                        return element;
+                    }
+                }
+                return null;
+            """)
 
             if not reply_textarea:
                 raise Exception("Could not find reply textarea")
 
-            # Wait for textarea to be interactive
-            wait.until(EC.element_to_be_clickable(reply_textarea))
+            time.sleep(random.uniform(4.2, 5.4))
 
-            # Click textarea to focus
-            self._safe_click(reply_textarea)
-            time.sleep(random.uniform(0.5, 1))
-
-            # Clear any existing text
-            reply_textarea.clear()
-            time.sleep(random.uniform(0.3, 0.7))
-
-            """# Type reply with human-like delays
-            logger.info("Typing reply text...")
-            for i, char in enumerate(reply_text):
-                reply_textarea.send_keys(char)
-
-                # Variable delays - faster for common letters, slower for punctuation
-                if char in ' .,!?':
-                    delay = random.uniform(0.1, 0.3)
-                else:
-                    delay = random.uniform(0.05, 0.15)
-
-                time.sleep(delay)
-
-                # Occasional longer pauses to simulate thinking
-                if i > 0 and i % random.randint(15, 25) == 0:
-                    time.sleep(random.uniform(0.5, 1.2))"""
-
-            logger.info("Setting reply text via clipboard injection...")
+            # Lightning-fast text injection with proper React event handling
             driver.execute_script("""
+                const textarea = arguments[0];
                 const text = arguments[1];
+
+                // Focus and clear
+                textarea.focus();
+                textarea.value = '';
+
+                // Create and dispatch paste event for React compatibility
                 const dataTransfer = new DataTransfer();
-                dataTransfer.setData('text', text);
-                const event = new ClipboardEvent('paste', { clipboardData: dataTransfer, bubbles: true });
-                arguments[0].dispatchEvent(event);
+                dataTransfer.setData('text/plain', text);
+                const pasteEvent = new ClipboardEvent('paste', {
+                    clipboardData: dataTransfer,
+                    bubbles: true,
+                    cancelable: true
+                });
+
+                textarea.dispatchEvent(pasteEvent);
+
+                // Fallback: direct value set with events
+                textarea.value = text;
+
+                // Trigger React events
+                const inputEvent = new Event('input', { bubbles: true });
+                const changeEvent = new Event('change', { bubbles: true });
+                textarea.dispatchEvent(inputEvent);
+                textarea.dispatchEvent(changeEvent);
             """, reply_textarea, reply_text)
 
-            # Wait before submitting
-            time.sleep(random.uniform(1, 2))
+            time.sleep(random.uniform(4.5, 5.8))
 
-            # Find and click reply submit button
-            submit_selectors = [
-                '[data-testid="tweetButtonInline"]',
-                '[data-testid="tweetButton"]',
-                'div[role="button"][data-testid*="tweet"]'
-            ]
+            # Fast submit button detection and click
+            reply_submit = driver.execute_script("""
+                const selectors = [
+                    '[data-testid="tweetButtonInline"]',
+                    '[data-testid="tweetButton"]',
+                    'div[role="button"][data-testid*="tweet"]'
+                ];
 
-            reply_submit = None
-            for selector in submit_selectors:
-                try:
-                    reply_submit = wait.until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                    )
-                    break
-                except TimeoutException:
-                    continue
+                for (let selector of selectors) {
+                    const element = document.querySelector(selector);
+                    if (element && element.offsetParent !== null && !element.disabled) {
+                        element.click();
+                        return true;
+                    }
+                }
+                return false;
+            """)
 
             if not reply_submit:
-                raise Exception("Could not find reply submit button")
+                raise Exception("Could not find or click reply submit button")
 
-            # Submit the reply
-            self._safe_click(reply_submit)
-
-            # Wait for reply to be posted - look for success indicators
-            time.sleep(random.uniform(2, 4))
-
-            # Try to detect successful posting
-            try:
-                # Look for success indicators
-                success_indicators = [
-                    '[data-testid="toast"]',  # Success toast
-                    '[role="alert"]',         # Success alert
-                ]
-
-                for indicator in success_indicators:
-                    elements = driver.find_elements(By.CSS_SELECTOR, indicator)
-                    if elements:
-                        logger.info("Reply posting success indicator found")
-                        break
-            except:
-                pass  # Success detection is optional
+            time.sleep(1.5)  # Reduced wait for posting
 
             logger.info(f"Successfully replied to @{tweet_data['username']}")
             return True
 
-        except TimeoutException as e:
-            logger.error(f"Reply timeout - element not found/clickable: {e}")
-            return False
-        except WebDriverException as e:
-            logger.error(f"WebDriver error during reply: {e}")
-            return False
         except Exception as e:
             logger.error(f"Failed to reply to tweet: {e}")
             return False
@@ -1016,6 +1045,40 @@ class SeleniumManager:
         """Close the WebDriver safely"""
         logger.info("Closing WebDriver...")
         self._cleanup_driver()
+
+    def reset_for_reuse(self):
+        """Reset driver state for reuse without full recreation"""
+        if not self.driver:
+            return False
+
+        try:
+            # Clear caches
+            self._element_cache.clear()
+
+            # Clear browser state efficiently
+            self.driver.execute_script("""
+                // Clear any dialogs or overlays
+                const overlays = document.querySelectorAll('[role="dialog"], .modal, [data-testid="mask"]');
+                overlays.forEach(overlay => overlay.remove());
+
+                // Clear any form states
+                document.querySelectorAll('textarea, input').forEach(el => {
+                    if (el.value) el.value = '';
+                });
+            """)
+
+            # Navigate to home if not already there
+            current_url = self.driver.current_url
+            if not current_url.endswith('/home'):
+                self.driver.get("https://x.com/home")
+                time.sleep(1)
+
+            logger.info("Driver reset for reuse completed")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to reset driver for reuse: {e}")
+            return False
 
     def __enter__(self):
         """Context manager entry"""

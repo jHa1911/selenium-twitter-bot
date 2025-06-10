@@ -1,8 +1,8 @@
 {
   "bot_settings": {
-    "SEARCH_QUERY": "dydx",
+    "SEARCH_QUERY": "theoriq -filter:replies",
     "MAX_REPLIES_PER_DAY": 1000,
-    "MAX_REPLIES_PER_HOUR": 300,
+    "MAX_REPLIES_PER_HOUR": 50,
     "MIN_DELAY_SECONDS": 5,
     "MAX_DELAY_SECONDS": 10,
     "ENABLE_AUTO_FOLLOW_BACK": false,
@@ -11,5 +11,5 @@
     "MAX_LIKES_PER_DAY": 100,
     "MAX_LIKES_PER_HOUR": 15
   },
-  "bot_status": "running"
+  "bot_status": "stopped"
 }

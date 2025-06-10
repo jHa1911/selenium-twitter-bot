@@ -494,7 +494,7 @@ class TwitterBot:
 
             # Check for text indicators
             for indicator in end_indicators[:4]:  # Text indicators
-                if indicator.lower() in page_source:
+                if indicator in page_source:
                     return True
 
             # Check for element indicators
