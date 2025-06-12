@@ -30,7 +30,7 @@ class ReplyGenerator:
                         logger.info(f"Custom reply for '{keyword}': {reply}")
                         return reply
 
-            prompt = f'Write a brief, engaging reply to this tweet but do not include non-BMP Characters : "{tweet_lower}"'
+            prompt = f'Write one brief, engaging reply to this tweet that sounds natural and human: : "{tweet_lower}"'
 
             response = self.client.models.generate_content(
                 model=self.model_name,

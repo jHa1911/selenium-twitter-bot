@@ -388,6 +388,11 @@ class TwitterBot:
                     logger.info("Daily reply limit reached. Stopping tweet processing.")
                     break
 
+                if self.replies_this_hour >= self.settings.max_replies_per_hour:
+                    logger.info("Hourly reply limit reached. Exiting function.")
+                    break
+
+
                 # Get current tweets on page
                 if not self.selenium_manager:
                     logger.error("SeleniumManager is not initialized")
@@ -533,6 +538,8 @@ class TwitterBot:
             ):
                 return False"""
 
+            time.sleep(random.uniform(3, 5))
+
             # Generate reply
             reply_text = self.reply_generator.generate_reply(
                 tweet_text,
@@ -548,6 +555,8 @@ class TwitterBot:
                 logger.info(f"TEST MODE - Would reply to @{username}: {reply_text}")
                 self.replied_tweets.add(tweet_id)
                 return True
+
+            time.sleep(random.uniform(8, 12))
 
             # Actually reply
             if self.selenium_manager.reply_to_tweet(tweet_data, reply_text):

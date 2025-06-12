@@ -635,7 +635,7 @@ class SeleniumManager:
 
         try:
             # Navigate to search page
-            base_url = "https://x.com" if query == "home" else f"https://x.com/search?q={quote_plus(query)}&src=typed_query&f=live"
+            base_url = "https://x.com/home" if query == "home" else f"https://x.com/search?q={quote_plus(query)}&src=typed_query&f=live"
 
             driver.get(base_url)
             time.sleep(random.uniform(3, 5))
@@ -944,7 +944,7 @@ class SeleniumManager:
         try:
             self._dismiss_overlays()
 
-            time.sleep(random.uniform(1.7, 2.5))
+            time.sleep(random.uniform(2.7, 3.5))
 
             reply_button = tweet_data['reply_button']
 
@@ -977,7 +977,7 @@ class SeleniumManager:
             if not reply_textarea:
                 raise Exception("Could not find reply textarea")
 
-            time.sleep(random.uniform(4.2, 5.4))
+            time.sleep(random.uniform(12, 15.4))
 
             # Lightning-fast text injection with proper React event handling
             driver.execute_script("""
